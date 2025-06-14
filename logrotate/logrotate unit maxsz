@@ -40,7 +40,7 @@ fi
 nano /lib/systemd/system/script_logrotate.service
  
  [Unit]
-Description=Check maxsize dialer.log
+Description=Check maxsize *.log
 Wants=script_logrotate.timer
 
 [Service]
@@ -56,7 +56,7 @@ WantedBy=multi-user.target
 nano /lib/systemd/system/script_logrotate.timer
  
 [Unit]
-Description=Check maxsize dialer.log timer
+Description=Check maxsize *.log timer
  
 [Timer]
 OnCalendar=*-*-* *:00/15
