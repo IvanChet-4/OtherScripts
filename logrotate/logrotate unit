@@ -1,0 +1,65 @@
+В drbd /opt/*/script/*.sh
+
+#!/bin/bash
+
+# Скрипт для проверки размера лог-файла и запуска logrotate при достижении maxsize
+
+LOG_FILE="/opt/*/logs/*.log"
+MAXSIZE_MB="4096"
+LOGROTATE_CONF="/etc/logrotate.d/logconf"
+
+
+if [ ! -f "$LOG_FILE" ]; then
+  echo "Ошибка: Лог-файл '$LOG_FILE' не найден."
+  exit 2
+fi
+
+if [ ! -f "$LOGROTATE_CONF" ]; then
+  echo "Ошибка: Конфигурационный файл logrotate '$LOGROTATE_CONF' не найден."
+  exit 3
+fi
+
+# Получаем размер файла в мегабайтах (целое число)
+FILE_SIZE_MB=$(( $(stat -c%s "$LOG_FILE") / 1024 / 1024 ))
+
+echo "Размер файла $LOG_FILE: ${FILE_SIZE_MB}MB, порог: ${MAXSIZE_MB}MB"
+
+if [ "$FILE_SIZE_MB" -ge "$MAXSIZE_MB" ]; then
+  echo "Размер файла достиг порога. Запускаем принудительную ротацию logrotate..."
+  sudo logrotate -f "$LOGROTATE_CONF"
+else
+  echo "Ротация не требуется."
+fi
+
+
+
+
+
+На каждой ноде:
+
+nano /lib/systemd/system/script_logrotate.service
+ 
+ [Unit]
+Description=Check maxsize dialer.log
+Wants=script_logrotate.timer
+
+[Service]
+Type=oneshot
+ExecStart=/opt/*/script/script_logrotate
+
+[Install]
+WantedBy=multi-user.target
+
+
+
+
+nano /lib/systemd/system/script_logrotate.timer
+ 
+[Unit]
+Description=Check maxsize dialer.log timer
+ 
+[Timer]
+OnCalendar=*-*-* *:00/15
+ 
+[Install]
+WantedBy=timers.target
