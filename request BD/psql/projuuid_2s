@@ -1,0 +1,131 @@
+import sys
+import argparse
+import psycopg2
+from tabulate import tabulate
+import ast
+
+
+
+
+# Получение аргумента из командной строки
+sequence_input = sys.argv[1] if len(sys.argv) > 1 else None
+sequence_ids = None
+
+if sequence_input:
+    try:
+        # Попытка распарсить как список
+        parsed = ast.literal_eval(sequence_input)
+        if isinstance(parsed, list):
+            sequence_ids = parsed
+        else:
+            # Если не список, считаем как одиночное значение
+            sequence_ids = [parsed]
+    except Exception:
+        # В случае ошибки парсинга — считаем как одиночное значение
+        sequence_ids = [sequence_input]
+else:
+    sequence_ids = None
+####=================================================
+
+
+
+####ПЕРЕМЕННЫЕ ДЛЯ РЕДАКТИРОВАНИЯ####
+# параметры подключения к базе данных
+conn_params = {
+    'host': '',
+    #'port': ,
+    'dbname': '',
+    'user': '',
+    'password': ''
+}
+####=================================================
+
+
+
+
+####ПЕРЕМЕННЫЕ ДЛЯ РЕДАКТИРОВАНИЯ####
+# параметры фильтрации (можно оставить пустыми или None)
+start_date = None  # например, None или '2025-01-01 00:00:00.429'
+end_date = None    # например, None или '2025-01-31 11:06:57.429'
+login_pattern = 'login'  # например, None или 'login%'
+#sequence_id_value = None  # например, None или 65103
+project_uuid_value = None  # например, None или 'corebo00000000000p81wwwww30lo0t0'
+####=================================================
+
+
+
+
+# Начинаем формировать базовый запрос
+sql = """
+SELECT
+    st."ENTERED" as ENTERED,
+    st."STATUS" as STATUS,
+    st."DURATION" as DURATION,
+    emp."login" AS LOGIN,
+    ph."projecttitle" AS PROJECT_NAME,
+    ph."projectuuid" AS PROJECT_UUID,
+    st."SEQUENCE_ID" as SEQUENCE_ID
+FROM
+    mv_employee emp
+JOIN "V_STATUS_CHANGES" st ON st."LOGIN" = emp."login"
+JOIN mv_participant_history ph ON ph.personuuid = emp.uuid AND ph.enddate IS NULL
+WHERE 1=1
+"""
+
+params = []
+
+####Дополнения к sql запросу####
+# Добавляем условия по необходимости
+if start_date:
+    sql += ' AND st."ENTERED" >= %s'
+    params.append(start_date)
+
+if end_date:
+    sql += ' AND st."ENTERED" <= %s'
+    params.append(end_date)
+
+if login_pattern:
+    sql += ' AND st."LOGIN" LIKE %s'
+    params.append(login_pattern)
+
+# добавляем условие по multiple sequence_id, если есть список
+if sequence_ids:
+    placeholders = ','.join(['%s'] * len(sequence_ids))
+    sql += f' AND st."SEQUENCE_ID" IN ({placeholders})'
+    params.extend(sequence_ids)
+
+
+#if sequence_id_value is not None:
+#    sql += ' AND st."SEQUENCE_ID" = %s'
+#    params.append(sequence_id_value)
+
+
+if project_uuid_value:
+    sql += ' AND ph."projectuuid" = %s'
+    params.append(project_uuid_value)
+
+sql += ' ORDER BY st."SEQUENCE_ID" ASC;'
+####=================================================
+
+
+
+
+#Запрос в БД с обработкой исключений
+try:
+    with psycopg2.connect(**conn_params) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
+
+            # Заголовки таблицы
+            headers = ['ENTERED', 'STATUS', 'DURATION', 'LOGIN', 'PROJECT_NAME', 'PROJECT_UUID', 'SEQUENCE_ID']
+
+            # Вывод таблицы один раз после получения данных
+            print(tabulate(rows, headers=headers, tablefmt='grid'))
+####=================================================
+
+
+
+
+except Exception as e:
+    print(f'Ошибка при выполнении запроса: {e}')
