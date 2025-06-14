@@ -1,0 +1,12 @@
+Нужен jq
+
+#!/bin/bash
+
+# Получить список элементов
+elements=$(curl -k -v -X GET -H "Content-Type: application/json" --user log:pass https://test.lab.local:443/api/v2/catalogs/PhoneNumberTimeZoneCatalog/items | jq -r '.items[].code')
+
+# Удалить каждый элемент
+for itemCode in $elements; do
+  echo "Удаление элемента: $itemCode"
+curl -k -v -X DELETE -H "Content-Type: application/json" --user log:pass https://test.lab.local:443/api/v2/catalogs/PhoneNumberTimeZoneCatalog/items/$itemCode
+done
