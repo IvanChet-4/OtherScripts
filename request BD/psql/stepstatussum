@@ -1,1 +1,167 @@
+Нужен psycopg2
 
+import psycopg2
+from datetime import datetime
+
+
+
+
+####ПЕРЕМЕННЫЕ ДЛЯ РЕДАКТИРОВАНИЯ####
+#### Блок данных для подключения ####
+DB_NAME = ""
+PSQL_USER = ""
+PSQL_PASSWORD = ""
+PSQL_HOST = ""
+####=================================================
+
+
+
+
+####ПЕРЕМЕННЫЕ ДЛЯ РЕДАКТИРОВАНИЯ####
+#### Блок фильтров ####
+#### 1. Временной интервал поиска ####
+start_date_str = '2025-01-01 00:00:00.429'
+end_date_str = '2025-01-31 11:06:57.429'
+
+#### 2. Фильтр по оператору (логину) ####
+#### Укажите логин оператора, по которому хотите вывести результаты. Если оставить пустым или None, фильтр не применяется. ####
+filter_login = None  # примеры: 'login' или None
+####=================================================
+
+
+
+
+#### Начало скрипта ####
+try:
+    #### Подключение к базе данных ####
+    conn = psycopg2.connect(
+        dbname=DB_NAME,
+        user=PSQL_USER,
+        password=PSQL_PASSWORD,
+        host=PSQL_HOST
+    )
+    cursor = conn.cursor()
+
+    #### Запрос в БД. ####
+    #### Получаем все записи (sequence_id, login, status, entered) из таблицы public.status_changes_ms, отсортированные по login и sequence_id, с учетом диапазона дат entered (BETWEEN %s AND %s, (start_date_str, end_date_str)) ####
+    cursor.execute("""
+        SELECT sequence_id, login, status, entered
+        FROM public.status_changes_ms
+        WHERE entered BETWEEN %s AND %s
+        ORDER BY login, sequence_id;
+    """, (start_date_str, end_date_str))
+    rows = cursor.fetchall()
+
+    transition_count = 0
+    sequence_ids = []
+####=================================================
+
+
+    #### Словари для хранения последней записи каждого оператора ####
+    last_status_by_login = {}
+    last_entered_components_by_login = {}
+    last_sequence_id_by_login = {}
+
+
+    #### Цикл с построчной обработкой таблицы БД ####
+    for row in rows:
+        sequence_id, login, status, entered_value = row
+        #### Проверка фильтра по логину ####
+        if filter_login and login != filter_login:
+            continue  # пропускаем записи не по выбранному логину
+####=================================================
+
+
+        #### Проверка типа entered_value ####
+        if isinstance(entered_value, datetime):
+            entered_dt = entered_value
+        elif isinstance(entered_value, str):
+            try:
+                #### Попытка парсинга времени с миллисекундами ####
+                entered_dt = datetime.strptime(entered_value, "%Y-%m-%d %H:%M:%S.%f")
+            except ValueError:
+                try:
+                    #### Попытка парсинга без миллисекунд ####
+                    entered_dt = datetime.strptime(entered_value, "%Y-%m-%d %H:%M:%S")
+                except Exception as e:
+                    print(f"Ошибка парсинга времени: {entered_value} - {e}")
+                    entered_dt = None
+        else:
+            entered_dt = None
+
+
+        #### Извлекаем компоненты для сравнения: год####
+        if entered_dt:
+            entered_components = (entered_dt.year) # если хотим сравнивать совпадение с точностью до месяца ", entered_dt.month", до дня ", entered_dt.day" до часа ", entered_dt.hour"
+        else:
+            entered_components = None
+####=================================================
+
+
+
+
+        #### Выстраиваем последовательности значений для каждого логина ####
+        if login not in last_status_by_login:
+            #### Первая запись для этого логина ####
+            last_status_by_login[login] = status
+            last_entered_components_by_login[login] = entered_components
+            last_sequence_id_by_login[login] = sequence_id
+            continue
+
+        prev_status = last_status_by_login[login]
+        prev_entered_components = last_entered_components_by_login[login]
+        prev_sequence_id = last_sequence_id_by_login[login]
+####=================================================
+
+
+
+
+        ####ПЕРЕМЕННЫЕ ДЛЯ РЕДАКТИРОВАНИЯ####
+        #### Проверяем переход из 'away' в 'normal' с совпадением времени по компонентам (можно указывать любые статусы в if prev_status == 'away' and status == 'normal') ####
+        if prev_status == 'away' and status == 'normal':
+            if prev_entered_components and entered_components and prev_entered_components == entered_components:
+                #### Этот print выводит найденные элементы ####
+                print(f"Переход найден: login={login}, prev_seq={prev_sequence_id} {entered_value}")
+                sequence_ids.append(prev_sequence_id)
+                transition_count += 1
+
+
+        #### обновляем данные для следующей итерации ####
+        last_status_by_login[login] = status
+        last_entered_components_by_login[login] = entered_components
+        last_sequence_id_by_login[login] = sequence_id
+####=================================================
+
+
+
+
+    #### Вывод результатов: ####
+    print(f"\nОбщее количество переходов 'away' -> 'normal': {transition_count}\n")
+#    print("\nSequence ID для таких переходов (по возрастанию):\n")
+#    for seq_id in sorted(sequence_ids):
+#        print(seq_id)
+####=================================================
+
+
+
+
+    # Формируем массивы login и sequence_id для вывода в виде ['элемент', ...]
+    logins_list = [f'{l}' for l in set([row[1] for row in rows])]
+    sequence_ids_list_strs = [f'{sid}' for sid in set(sequence_ids)]
+
+    print("\nМассив логинов:\n", [l for l in logins_list])
+    print("\nМассив sequence_id:\n", [sid for sid in sequence_ids_list_strs])
+####=================================================
+
+
+
+
+#### Обработка исключений ####
+except Exception as e:
+    print(f"Ошибка: {e}")
+finally:
+    if 'cursor' in locals():
+        cursor.close()
+    if 'conn' in locals():
+        conn.close()
+####=================================================
